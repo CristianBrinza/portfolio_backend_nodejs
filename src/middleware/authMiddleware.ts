@@ -1,3 +1,5 @@
+// middleware/authMiddleware.ts
+
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/User';
@@ -14,10 +16,11 @@ export const authenticateToken = (roles: ('admin' | 'user' | 'guest')[]) => {
         next: NextFunction
     ) => {
         const authHeader = req.headers['authorization'];
-
         const token = authHeader && authHeader.split(' ')[1];
-        if (!token)
+
+        if (!token) {
             return res.status(401).json({ message: 'Unauthorized: No token provided' });
+        }
 
         try {
             const decoded: any = jwt.verify(token, JWT_SECRET);
