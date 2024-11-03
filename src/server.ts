@@ -17,6 +17,11 @@ app.use(cors());
 const specs = swaggerJsDoc(swaggerOptions);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
+// Root route for base URL
+app.get('/', (req, res) => {
+    res.send("cristianbrinza.com backend - working");
+});
+
 // Routes
 app.use('/auth', authRoutes);
 
