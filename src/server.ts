@@ -1,14 +1,15 @@
-// server.js
+// server.ts
 
 import express from 'express';
 import { connect } from 'mongoose';
 import cors from 'cors';
 import { PORT, MONGO_URI } from './config/config';
 import authRoutes from './routes/authRoutes';
+import portfolioRoutes from './routes/portfolioRoutes'; // Import portfolio routes
+import imagesRoutes from './routes/imagesRoutes';       // Import images routes
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsDoc from 'swagger-jsdoc';
 import swaggerOptions from './swagger/swagger';
-import { authenticateToken } from './middleware/authMiddleware';
 import fs from 'fs';
 import path from 'path';
 
@@ -24,37 +25,21 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 // Root route for base URL
 app.get('/', (req, res) => {
-    res.send("cristianbrinza.com backend - working");
+    res.send('cristianbrinza.com backend - working');
 });
 
-// Public portfolio GET route
-app.get('/json/portfolio', (req, res) => {
-    try {
-        const portfolioData = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/portfolioData.json'), 'utf-8'));
-        res.json(portfolioData);
-    } catch (error) {
-        console.error("Error reading portfolio data:", error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
+// Status endpoint
+app.get('/status', (req, res) => {
+    res.status(200).send({ status: 'OK' });
 });
 
-// Protected portfolio update route
-app.put('/json/portfolio', authenticateToken(['admin', 'user']), (req, res) => {
-    try {
-        const newPortfolioData = req.body;
-
-        // Optional: add validation here for newPortfolioData
-
-        fs.writeFileSync(path.join(__dirname, 'data/portfolioData.json'), JSON.stringify(newPortfolioData, null, 2));
-        res.json({ message: "Portfolio data updated successfully" });
-    } catch (error) {
-        console.error("Error updating portfolio data:", error);
-        res.status(500).json({ message: "Internal Server Error" });
-    }
-});
+// Serve images from the 'images' directory
+app.use('/images', express.static(path.join(__dirname, 'images')));
 
 // Routes
 app.use('/auth', authRoutes);
+app.use('/', portfolioRoutes);    // Use portfolio routes
+app.use('/', imagesRoutes);       // Use images routes
 
 // Test environment variables
 console.log('Environment Variables:', {

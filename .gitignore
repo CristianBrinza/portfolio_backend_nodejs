@@ -29,3 +29,4 @@ swagger.json
 swagger.yaml
 # .zshrc, if personalized and should not be tracked
 .zshrc
+src/data/portfolioData.json
