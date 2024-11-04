@@ -31,3 +31,5 @@ swagger.yaml
 .zshrc
 src/data/portfolioData.json
 /src/images
+/src/data
+*.png
