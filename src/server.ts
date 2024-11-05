@@ -12,6 +12,7 @@ import swaggerJsDoc from 'swagger-jsdoc';
 import swaggerOptions from './swagger/swagger';
 import fs from 'fs';
 import path from 'path';
+import certificationsRoutes from "./routes/certificationsRoutes";
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use('/images', express.static(path.join(__dirname, 'images')));
 // Routes
 app.use('/auth', authRoutes);
 app.use('/', portfolioRoutes);    // Use portfolio routes
+app.use('/', certificationsRoutes);    // Use certifications routes
 app.use('/', imagesRoutes);       // Use images routes
 
 // Test environment variables
