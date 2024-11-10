@@ -5,14 +5,14 @@ import { connect } from 'mongoose';
 import cors from 'cors';
 import { PORT, MONGO_URI } from './config/config';
 import authRoutes from './routes/authRoutes';
-import portfolioRoutes from './routes/portfolioRoutes'; // Import portfolio routes
-import imagesRoutes from './routes/imagesRoutes';       // Import images routes
+import portfolioRoutes from './routes/portfolioRoutes';
+import imagesRoutes from './routes/imagesRoutes';
+import storageRoutes from './routes/storageRoutes'; // Import storage routes
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsDoc from 'swagger-jsdoc';
 import swaggerOptions from './swagger/swagger';
-import fs from 'fs';
+import certificationsRoutes from './routes/certificationsRoutes';
 import path from 'path';
-import certificationsRoutes from "./routes/certificationsRoutes";
 
 const app = express();
 
@@ -37,11 +37,15 @@ app.get('/status', (req, res) => {
 // Serve images from the 'images' directory
 app.use('/images', express.static(path.join(__dirname, 'images')));
 
+// Serve shared items
+app.use('/storage/shared', express.static(path.join(__dirname, 'storage')));
+
 // Routes
 app.use('/auth', authRoutes);
-app.use('/', portfolioRoutes);    // Use portfolio routes
-app.use('/', certificationsRoutes);    // Use certifications routes
-app.use('/', imagesRoutes);       // Use images routes
+app.use('/', portfolioRoutes);
+app.use('/', certificationsRoutes);
+app.use('/', imagesRoutes);
+app.use('/', storageRoutes); // Use storage routes
 
 // Test environment variables
 console.log('Environment Variables:', {
