@@ -32,4 +32,5 @@ swagger.yaml
 src/data/portfolioData.json
 /src/images
 /src/data
+/src/storage
 *.png
