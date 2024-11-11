@@ -8,6 +8,8 @@ import { v4 as uuidv4 } from 'uuid';
 import mime from 'mime-types';
 import { promisify } from 'util';
 import { LRUCache } from 'lru-cache';
+import FileActivity from '../models/FileActivity';
+import SharedFile from '../models/SharedFile';
 
 const pipeline = promisify(require('stream').pipeline);
 
@@ -58,8 +60,9 @@ const cache = new LRUCache<string, Buffer>({
 
 // Helper function for sanitizing paths
 const sanitizePath = (inputPath: string): string => {
-    return inputPath.replace(/(\.\.(\/|\\))/g, '').replace(/^\/+/, '');
+    return path.normalize(inputPath).replace(/^(\.\.(\/|\\|$))+/, '');
 };
+
 
 // List files and folders with search, filter, sort, and pagination
 export const listItems = (req: Request, res: Response) => {
@@ -157,38 +160,6 @@ export const createFolder = (req: Request, res: Response) => {
     });
 };
 
-// Upload files with versioning
-export const uploadFiles = async (req: Request, res: Response) => {
-    if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
-        return res.status(400).json({ message: 'No files uploaded' });
-    }
-
-    try {
-        for (const file of req.files as Express.Multer.File[]) {
-            const folderPath = sanitizePath(req.body.folderPath || '');
-            const filePath = path.join(storageDir, folderPath, file.originalname);
-
-            if (fs.existsSync(filePath)) {
-                // File exists, move it to versions
-                const versionsDir = path.join(storageDir, '.versions', folderPath);
-                fs.mkdirSync(versionsDir, { recursive: true });
-                const timestamp = new Date()
-                    .toISOString()
-                    .replace(/[:.]/g, '-')
-                    .replace('T', '_')
-                    .split('Z')[0];
-                const versionedFileName = `${file.originalname}.${timestamp}`;
-                fs.renameSync(filePath, path.join(versionsDir, versionedFileName));
-            }
-            // The new file is already saved by multer
-        }
-
-        res.status(201).json({ message: 'Files uploaded successfully' });
-    } catch (error) {
-        console.error('Error uploading files:', error);
-        res.status(500).json({ message: 'Error uploading files' });
-    }
-};
 
 // Rename a file or folder
 export const renameItem = (req: Request, res: Response) => {
@@ -208,11 +179,21 @@ export const renameItem = (req: Request, res: Response) => {
         return res.status(400).json({ message: 'Invalid path' });
     }
 
-    fs.rename(oldFullPath, newFullPath, (err) => {
+    fs.rename(oldFullPath, newFullPath, async (err) => {
         if (err) {
             console.error('Error renaming item:', err);
             return res.status(500).json({ message: 'Error renaming item' });
         }
+
+        // Log the rename activity
+        await FileActivity.create({
+            userId: req.user._id,
+            username: req.user.username,
+            name: req.user.name,
+            surname: req.user.surname,
+            action: 'renamed',
+            filePath: sanitizedOldPath,
+        });
 
         res.json({ message: 'Item renamed successfully' });
     });
@@ -236,11 +217,21 @@ export const moveItem = (req: Request, res: Response) => {
         return res.status(400).json({ message: 'Invalid path' });
     }
 
-    fs.rename(fullSourcePath, fullDestinationPath, (err) => {
+    fs.rename(fullSourcePath, fullDestinationPath, async (err) => {
         if (err) {
             console.error('Error moving item:', err);
             return res.status(500).json({ message: 'Error moving item' });
         }
+
+        // Log the move activity
+        await FileActivity.create({
+            userId: req.user._id,
+            username: req.user.username,
+            name: req.user.name,
+            surname: req.user.surname,
+            action: 'moved',
+            filePath: sanitizedSourcePath,
+        });
 
         res.json({ message: 'Item moved successfully' });
     });
@@ -259,19 +250,32 @@ export const deleteItem = (req: Request, res: Response) => {
         return res.status(400).json({ message: 'Invalid path' });
     }
 
-    // Ensure .trash directory exists
-    fs.mkdirSync(path.dirname(trashPath), { recursive: true });
+    // Only create .trash directory if item is not already in .trash
+    if (!sanitizedItemPath.startsWith('.trash')) {
+        fs.mkdirSync(path.dirname(trashPath), { recursive: true });
+    }
 
     // Move item to trash
-    fs.rename(fullPath, trashPath, (err) => {
+    fs.rename(fullPath, trashPath, async (err) => {
         if (err) {
             console.error('Error moving item to trash:', err);
             return res.status(500).json({ message: 'Error deleting item' });
         }
 
+        // Log the delete activity
+        await FileActivity.create({
+            userId: req.user._id,
+            username: req.user.username,
+            name: req.user.name,
+            surname: req.user.surname,
+            action: 'deleted',
+            filePath: sanitizedItemPath,
+        });
+
         res.json({ message: 'Item moved to trash successfully' });
     });
 };
+
 
 // List items in trash
 export const listTrashItems = (req: Request, res: Response) => {
@@ -370,6 +374,7 @@ export const deleteItemPermanently = (req: Request, res: Response) => {
         }
     });
 };
+
 
 // List versions of a file
 export const listVersions = (req: Request, res: Response) => {
@@ -499,6 +504,7 @@ export const uploadChunk = (req: Request, res: Response) => {
 };
 
 
+// Update filePreview function
 export const filePreview = async (req: Request, res: Response) => {
     try {
         const filePath = sanitizePath(req.query.path as string);
@@ -521,7 +527,13 @@ export const filePreview = async (req: Request, res: Response) => {
         if (mimeType && mimeType.startsWith('text/')) {
             const data = await fs.promises.readFile(fullPath, 'utf-8');
             res.setHeader('Content-Type', 'text/plain');
-            return res.send(data.substring(0, 1000));
+            return res.send(data.substring(0, 5000)); // Increased limit
+        }
+
+        // Serve PDF files
+        if (mimeType === 'application/pdf') {
+            res.setHeader('Content-Type', mimeType);
+            return res.sendFile(fullPath);
         }
 
         // Unsupported preview type
@@ -532,3 +544,104 @@ export const filePreview = async (req: Request, res: Response) => {
     }
 };
 
+// Upload files with versioning
+export const uploadFiles = async (req: Request, res: Response) => {
+    if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
+        return res.status(400).json({ message: 'No files uploaded' });
+    }
+
+    try {
+        const user = req.user;
+
+        for (const file of req.files as Express.Multer.File[]) {
+            const folderPath = sanitizePath(req.body.folderPath || '');
+            const filePath = path.join(folderPath, file.originalname);
+
+            if (fs.existsSync(path.join(storageDir, filePath))) {
+                const versionDir = path.join(storageDir, '.versions', folderPath);
+                ensureDirectory(versionDir);
+
+                const timestamp = Date.now();
+                const versionedFileName = `${file.originalname}.${timestamp}`;
+
+                fs.renameSync(
+                    path.join(storageDir, filePath),
+                    path.join(versionDir, versionedFileName)
+                );
+            }
+
+
+            // Log the file upload activity
+            await FileActivity.create({
+                userId: user._id,
+                username: user.username,
+                name: user.name,
+                surname: user.surname,
+                action: 'created',
+                filePath: filePath,
+            });
+        }
+
+        res.status(201).json({ message: 'Files uploaded successfully' });
+    } catch (error) {
+        console.error('Error uploading files:', error);
+        res.status(500).json({ message: 'Error uploading files' });
+    }
+};
+
+
+export const createShareLink = async (req: Request, res: Response) => {
+    try {
+        const { filePath, expiresIn } = req.body; // expiresIn in hours
+        const sanitizedFilePath = sanitizePath(filePath);
+        const fullPath = path.join(storageDir, sanitizedFilePath);
+
+        if (!fullPath.startsWith(storageDir) || !fs.existsSync(fullPath)) {
+            return res.status(400).json({ message: 'Invalid file path' });
+        }
+
+        const token = uuidv4();
+        const expiresAt = new Date(Date.now() + expiresIn * 3600000); // Convert hours to milliseconds
+
+        const sharedFile = new SharedFile({
+            filePath: sanitizedFilePath,
+            token,
+            expiresAt,
+            createdBy: req.user._id,
+        });
+
+        await sharedFile.save();
+
+        res.json({
+            message: 'Shareable link created',
+            shareLink: `${process.env.FRONTEND_URL}/link/${token}`,
+        });
+    } catch (error) {
+        console.error('Error creating share link:', error);
+        res.status(500).json({ message: 'Error creating share link' });
+    }
+};
+
+// Get shared file
+export const getSharedFile = async (req: Request, res: Response) => {
+    try {
+        const { token } = req.params;
+
+        const sharedFile = await SharedFile.findOne({ token });
+
+        if (!sharedFile) {
+            return res.status(404).json({ message: 'Shared file not found' });
+        }
+
+        if (sharedFile.expiresAt < new Date()) {
+            return res.status(410).json({ message: 'Shared link has expired' });
+        }
+
+        const fullPath = path.join(storageDir, sharedFile.filePath);
+
+        res.sendFile(fullPath);
+    } catch (error) {
+        console.error('Error fetching shared file:', error);
+        res.status(500).json({ message: 'Error fetching shared file' });
+    }
+};

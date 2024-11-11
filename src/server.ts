@@ -13,6 +13,7 @@ import swaggerJsDoc from 'swagger-jsdoc';
 import swaggerOptions from './swagger/swagger';
 import certificationsRoutes from './routes/certificationsRoutes';
 import path from 'path';
+import userRoutes from './routes/userRoutes';
 
 const app = express();
 
@@ -42,10 +43,17 @@ app.use('/storage/shared', express.static(path.join(__dirname, 'storage')));
 
 // Routes
 app.use('/auth', authRoutes);
+app.use('/', userRoutes);
 app.use('/', portfolioRoutes);
 app.use('/', certificationsRoutes);
 app.use('/', imagesRoutes);
-app.use('/', storageRoutes); // Use storage routes
+app.use('/', storageRoutes);
+
+// Serve images from the 'uploads/profile_images' directory
+app.use(
+    '/user/profile-image',
+    express.static(path.join(__dirname, 'uploads/profile_images'))
+);
 
 // Test environment variables
 console.log('Environment Variables:', {

@@ -16,6 +16,9 @@ import {
     deleteItemPermanently,
     listVersions,
     uploadChunk, filePreview,
+ createShareLink,
+    getSharedFile
+
 } from '../controllers/storageController';
 
 const router = express.Router();
@@ -469,7 +472,64 @@ import { authenticateToken } from '../middleware/authMiddleware';
  */
 router.get('/storage/preview', authenticateToken(['admin', 'user']), filePreview);
 
+/**
+ * @swagger
+ * /storage/share:
+ *   post:
+ *     summary: Create a shareable link for a file
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       description: Share link data
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - filePath
+ *               - expiresIn
+ *             properties:
+ *               filePath:
+ *                 type: string
+ *               expiresIn:
+ *                 type: number
+ *                 description: Expiration time in hours
+ *     responses:
+ *       200:
+ *         description: Shareable link created
+ *       400:
+ *         description: Invalid file path
+ *       500:
+ *         description: Server error
+ */
+router.post('/storage/share', authenticateToken(['admin', 'user']), createShareLink);
 
+/**
+ * @swagger
+ * /storage/shared/{token}:
+ *   get:
+ *     summary: Access a shared file
+ *     tags: [Storage]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Share token
+ *     responses:
+ *       200:
+ *         description: Shared file
+ *       404:
+ *         description: Shared file not found
+ *       410:
+ *         description: Shared link has expired
+ *       500:
+ *         description: Server error
+ */
+router.get('/storage/shared/:token', getSharedFile);
 
 
 export default router;

@@ -1,10 +1,14 @@
 // models/User.ts
+
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IUser extends Document {
     username: string;
     password: string;
     role: 'admin' | 'user' | 'guest';
+    name?: string;
+    surname?: string;
+    image?: string;
 }
 
 const UserSchema: Schema = new Schema({
@@ -15,6 +19,9 @@ const UserSchema: Schema = new Schema({
         enum: ['admin', 'user', 'guest'],
         default: 'user',
     },
+    name: { type: String },
+    surname: { type: String },
+    image: { type: String },
 });
 
 export default mongoose.model<IUser>('User', UserSchema);
