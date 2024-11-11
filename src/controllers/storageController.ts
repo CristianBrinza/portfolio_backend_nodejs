@@ -5,22 +5,33 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
-import { SharedItem } from '../models/SharedItem';
-import { IUser } from '../models/User';
+import mime from 'mime-types';
+import { promisify } from 'util';
+import { LRUCache } from 'lru-cache';
+
+const pipeline = promisify(require('stream').pipeline);
 
 // Set up multer storage configuration
 const storageDir = path.join(__dirname, '../storage');
 
 // Ensure the storage directory exists
 if (!fs.existsSync(storageDir)) {
-    fs.mkdirSync(storageDir);
+    fs.mkdirSync(storageDir, { recursive: true });
 }
+
+const ensureDirectory = (dir: string) => {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const folderPath = req.body.folderPath || '';
+        // Access folderPath from req.query
+        const folderPath = sanitizePath(req.query.folderPath as string || '');
         const dest = path.join(storageDir, folderPath);
+        ensureDirectory(dest);
         cb(null, dest);
     },
     filename: (req, file, cb) => {
@@ -28,12 +39,37 @@ const storage = multer.diskStorage({
     },
 });
 
-// Multer upload instance
-export const upload = multer({ storage });
 
-// List files and folders
+// Multer upload instance with limits
+export const upload = multer({
+    storage,
+    limits: {
+        fileSize: 100 * 1024 * 1024, // Limit file size to 100MB
+        files: 100, // Limit number of files
+    },
+});
+
+// Implement caching strategies using LRU cache
+const cache = new LRUCache<string, Buffer>({
+    maxSize: 500 * 1024 * 1024, // Max cache size in bytes (500MB)
+    sizeCalculation: (value, key) => value.length,
+    ttl: 1000 * 60 * 5, // Time-to-live in milliseconds
+});
+
+// Helper function for sanitizing paths
+const sanitizePath = (inputPath: string): string => {
+    return inputPath.replace(/(\.\.(\/|\\))/g, '').replace(/^\/+/, '');
+};
+
+// List files and folders with search, filter, sort, and pagination
 export const listItems = (req: Request, res: Response) => {
-    const folderPath = req.query.path as string || '';
+    const folderPath = sanitizePath((req.query.path as string) || '');
+    const searchQuery = (req.query.search as string) || '';
+    const sortBy = (req.query.sortBy as string) || 'name';
+    const sortOrder = (req.query.sortOrder as string) || 'asc';
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 50;
+
     const fullPath = path.join(storageDir, folderPath);
 
     // Prevent directory traversal
@@ -47,7 +83,7 @@ export const listItems = (req: Request, res: Response) => {
             return res.status(500).json({ message: 'Error reading directory' });
         }
 
-        const results = items.map((item) => {
+        let results = items.map((item) => {
             const itemPath = path.join(folderPath, item.name);
             const stats = fs.statSync(path.join(fullPath, item.name));
             return {
@@ -58,10 +94,39 @@ export const listItems = (req: Request, res: Response) => {
                 size: stats.size,
                 modifiedAt: stats.mtime,
                 createdAt: stats.birthtime,
+                mimeType: item.isFile() ? mime.lookup(item.name) || 'application/octet-stream' : null,
             };
         });
 
-        res.json({ items: results });
+        // Filter by search query
+        if (searchQuery) {
+            results = results.filter((item) =>
+                item.name.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+        }
+
+        // Sort results
+        results.sort((a, b) => {
+            const compareA = a[sortBy as keyof typeof a];
+            const compareB = b[sortBy as keyof typeof b];
+
+            if (compareA < compareB) return sortOrder === 'asc' ? -1 : 1;
+            if (compareA > compareB) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        // Pagination
+        const totalItems = results.length;
+        const totalPages = Math.ceil(totalItems / pageSize);
+        const paginatedResults = results.slice((page - 1) * pageSize, page * pageSize);
+
+        res.json({
+            items: paginatedResults,
+            page,
+            pageSize,
+            totalItems,
+            totalPages,
+        });
     });
 };
 
@@ -74,7 +139,8 @@ export const createFolder = (req: Request, res: Response) => {
         return res.status(400).json({ message: 'Invalid folder name' });
     }
 
-    const newFolderPath = path.join(storageDir, parentPath || '', folderName);
+    const sanitizedParentPath = sanitizePath(parentPath || '');
+    const newFolderPath = path.join(storageDir, sanitizedParentPath, folderName);
 
     // Prevent directory traversal
     if (!newFolderPath.startsWith(storageDir)) {
@@ -91,13 +157,37 @@ export const createFolder = (req: Request, res: Response) => {
     });
 };
 
-// Upload files
-export const uploadFiles = (req: Request, res: Response) => {
+// Upload files with versioning
+export const uploadFiles = async (req: Request, res: Response) => {
     if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
         return res.status(400).json({ message: 'No files uploaded' });
     }
 
-    res.status(201).json({ message: 'Files uploaded successfully' });
+    try {
+        for (const file of req.files as Express.Multer.File[]) {
+            const folderPath = sanitizePath(req.body.folderPath || '');
+            const filePath = path.join(storageDir, folderPath, file.originalname);
+
+            if (fs.existsSync(filePath)) {
+                // File exists, move it to versions
+                const versionsDir = path.join(storageDir, '.versions', folderPath);
+                fs.mkdirSync(versionsDir, { recursive: true });
+                const timestamp = new Date()
+                    .toISOString()
+                    .replace(/[:.]/g, '-')
+                    .replace('T', '_')
+                    .split('Z')[0];
+                const versionedFileName = `${file.originalname}.${timestamp}`;
+                fs.renameSync(filePath, path.join(versionsDir, versionedFileName));
+            }
+            // The new file is already saved by multer
+        }
+
+        res.status(201).json({ message: 'Files uploaded successfully' });
+    } catch (error) {
+        console.error('Error uploading files:', error);
+        res.status(500).json({ message: 'Error uploading files' });
+    }
 };
 
 // Rename a file or folder
@@ -109,7 +199,8 @@ export const renameItem = (req: Request, res: Response) => {
         return res.status(400).json({ message: 'Invalid name' });
     }
 
-    const oldFullPath = path.join(storageDir, oldPath);
+    const sanitizedOldPath = sanitizePath(oldPath);
+    const oldFullPath = path.join(storageDir, sanitizedOldPath);
     const newFullPath = path.join(path.dirname(oldFullPath), newName);
 
     // Prevent directory traversal
@@ -127,18 +218,137 @@ export const renameItem = (req: Request, res: Response) => {
     });
 };
 
-// Delete a file or folder
+// Move a file or folder
+export const moveItem = (req: Request, res: Response) => {
+    const { sourcePath, destinationPath } = req.body;
+
+    const sanitizedSourcePath = sanitizePath(sourcePath);
+    const sanitizedDestinationPath = sanitizePath(destinationPath);
+
+    const fullSourcePath = path.join(storageDir, sanitizedSourcePath);
+    const fullDestinationPath = path.join(storageDir, sanitizedDestinationPath);
+
+    // Prevent directory traversal
+    if (
+        !fullSourcePath.startsWith(storageDir) ||
+        !fullDestinationPath.startsWith(storageDir)
+    ) {
+        return res.status(400).json({ message: 'Invalid path' });
+    }
+
+    fs.rename(fullSourcePath, fullDestinationPath, (err) => {
+        if (err) {
+            console.error('Error moving item:', err);
+            return res.status(500).json({ message: 'Error moving item' });
+        }
+
+        res.json({ message: 'Item moved successfully' });
+    });
+};
+
+// Delete a file or folder (move to trash)
 export const deleteItem = (req: Request, res: Response) => {
     const { itemPath } = req.body;
 
-    const fullPath = path.join(storageDir, itemPath);
+    const sanitizedItemPath = sanitizePath(itemPath);
+    const fullPath = path.join(storageDir, sanitizedItemPath);
+    const trashPath = path.join(storageDir, '.trash', sanitizedItemPath);
 
     // Prevent directory traversal
     if (!fullPath.startsWith(storageDir)) {
         return res.status(400).json({ message: 'Invalid path' });
     }
 
-    fs.stat(fullPath, (err, stats) => {
+    // Ensure .trash directory exists
+    fs.mkdirSync(path.dirname(trashPath), { recursive: true });
+
+    // Move item to trash
+    fs.rename(fullPath, trashPath, (err) => {
+        if (err) {
+            console.error('Error moving item to trash:', err);
+            return res.status(500).json({ message: 'Error deleting item' });
+        }
+
+        res.json({ message: 'Item moved to trash successfully' });
+    });
+};
+
+// List items in trash
+export const listTrashItems = (req: Request, res: Response) => {
+    const trashDir = path.join(storageDir, '.trash');
+    const searchQuery = (req.query.search as string) || '';
+
+    fs.readdir(trashDir, { withFileTypes: true }, (err, items) => {
+        if (err) {
+            console.error('Error reading trash directory:', err);
+            return res.status(500).json({ message: 'Error reading trash directory' });
+        }
+
+        let results = items.map((item) => {
+            const itemPath = path.join('.trash', item.name);
+            const stats = fs.statSync(path.join(trashDir, item.name));
+            return {
+                name: item.name,
+                path: itemPath,
+                isFile: item.isFile(),
+                isFolder: item.isDirectory(),
+                size: stats.size,
+                modifiedAt: stats.mtime,
+                createdAt: stats.birthtime,
+            };
+        });
+
+        // Filter by search query
+        if (searchQuery) {
+            results = results.filter((item) =>
+                item.name.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+        }
+
+        res.json({ items: results });
+    });
+};
+
+// Restore item from trash
+export const restoreItem = (req: Request, res: Response) => {
+    const { itemPath } = req.body;
+
+    const sanitizedItemPath = sanitizePath(itemPath);
+    const trashPath = path.join(storageDir, '.trash', sanitizedItemPath);
+    const restorePath = path.join(storageDir, sanitizedItemPath);
+
+    // Prevent directory traversal
+    if (!trashPath.startsWith(path.join(storageDir, '.trash'))) {
+        return res.status(400).json({ message: 'Invalid path' });
+    }
+
+    // Ensure the destination directory exists
+    fs.mkdirSync(path.dirname(restorePath), { recursive: true });
+
+    // Move item from trash back to storage
+    fs.rename(trashPath, restorePath, (err) => {
+        if (err) {
+            console.error('Error restoring item:', err);
+            return res.status(500).json({ message: 'Error restoring item' });
+        }
+
+        res.json({ message: 'Item restored successfully' });
+    });
+};
+
+// Permanently delete item from trash
+export const deleteItemPermanently = (req: Request, res: Response) => {
+    const { itemPath } = req.body;
+
+    const sanitizedItemPath = sanitizePath(itemPath);
+    const trashPath = path.join(storageDir, '.trash', sanitizedItemPath);
+
+    // Prevent directory traversal
+    if (!trashPath.startsWith(path.join(storageDir, '.trash'))) {
+        return res.status(400).json({ message: 'Invalid path' });
+    }
+
+    fs.stat(trashPath, (err, stats) => {
         if (err) {
             console.error('Error accessing item:', err);
             return res.status(500).json({ message: 'Error accessing item' });
@@ -150,20 +360,46 @@ export const deleteItem = (req: Request, res: Response) => {
                 return res.status(500).json({ message: 'Error deleting item' });
             }
 
-            res.json({ message: 'Item deleted successfully' });
+            res.json({ message: 'Item permanently deleted' });
         };
 
         if (stats.isDirectory()) {
-            fs.rmdir(fullPath, { recursive: true }, deleteCallback);
+            fs.rm(trashPath, { recursive: true, force: true }, deleteCallback);
         } else {
-            fs.unlink(fullPath, deleteCallback);
+            fs.unlink(trashPath, deleteCallback);
         }
     });
 };
 
-// Download a file
-export const downloadFile = (req: Request, res: Response) => {
-    const filePath = req.query.path as string;
+// List versions of a file
+export const listVersions = (req: Request, res: Response) => {
+    const { itemPath } = req.query;
+    const sanitizedItemPath = sanitizePath(itemPath as string);
+    const versionsDir = path.join(storageDir, '.versions', path.dirname(sanitizedItemPath));
+
+    fs.readdir(versionsDir, (err, files) => {
+        if (err) {
+            console.error('Error reading versions directory:', err);
+            return res.status(500).json({ message: 'Error reading versions directory' });
+        }
+
+        const baseName = path.basename(sanitizedItemPath);
+        const versions = files
+            .filter((file) => file.startsWith(baseName))
+            .map((file) => {
+                return {
+                    versionName: file,
+                    path: path.join('.versions', path.dirname(sanitizedItemPath), file),
+                };
+            });
+
+        res.json({ versions });
+    });
+};
+
+// Download a file using streams and caching
+export const downloadFile = async (req: Request, res: Response) => {
+    const filePath = sanitizePath(req.query.path as string);
 
     const fullPath = path.join(storageDir, filePath);
 
@@ -172,93 +408,120 @@ export const downloadFile = (req: Request, res: Response) => {
         return res.status(400).json({ message: 'Invalid path' });
     }
 
-    res.download(fullPath, (err) => {
-        if (err) {
-            console.error('Error downloading file:', err);
-            res.status(500).json({ message: 'Error downloading file' });
+    try {
+        // Check if file is in cache
+        if (cache.has(fullPath)) {
+            console.log('Serving from cache');
+            res.setHeader('Content-Type', mime.lookup(fullPath) || 'application/octet-stream');
+            res.send(cache.get(fullPath));
+        } else {
+            const readStream = fs.createReadStream(fullPath);
+            const data: Buffer[] = [];
+
+            readStream.on('data', (chunk) => {
+                data.push(chunk);
+            });
+
+            readStream.on('end', () => {
+                const fileBuffer = Buffer.concat(data);
+                cache.set(fullPath, fileBuffer);
+                res.setHeader('Content-Type', mime.lookup(fullPath) || 'application/octet-stream');
+                res.send(fileBuffer);
+            });
+
+            readStream.on('error', (err) => {
+                console.error('Error downloading file:', err);
+                res.status(500).json({ message: 'Error downloading file' });
+            });
         }
-    });
+    } catch (error) {
+        console.error('Error downloading file:', error);
+        res.status(500).json({ message: 'Error downloading file' });
+    }
 };
 
-// Share a file or folder
-export const shareItem = async (req: Request, res: Response) => {
-    const { itemPath } = req.body;
-    const fullPath = path.join(storageDir, itemPath);
+// Upload files using chunked uploads
+export const uploadChunk = (req: Request, res: Response) => {
+    const { fileName, chunkIndex, totalChunks } = req.body;
 
-    // Prevent directory traversal
-    if (!fullPath.startsWith(storageDir)) {
-        return res.status(400).json({ message: 'Invalid path' });
-    }
+    const sanitizedFileName = sanitizePath(fileName);
+    const tempDir = path.join(storageDir, '.temp', sanitizedFileName);
 
-    // Check if item exists
-    if (!fs.existsSync(fullPath)) {
-        return res.status(404).json({ message: 'Item not found' });
-    }
+    // Ensure temp directory exists
+    fs.mkdirSync(tempDir, { recursive: true });
 
-    // Create a unique token for sharing
-    const token = uuidv4();
+    const chunkPath = path.join(tempDir, `chunk_${chunkIndex}`);
 
-    const sharedItem = new SharedItem({
-        token,
-        itemPath,
-        sharedBy: (req.user as IUser)._id,
-        createdAt: new Date(),
+    const writeStream = fs.createWriteStream(chunkPath);
+
+    req.on('data', (chunk) => {
+        writeStream.write(chunk);
     });
 
-    await sharedItem.save();
+    req.on('end', () => {
+        writeStream.end();
 
-    res.json({ message: 'Item shared successfully', shareUrl: `/storage/shared/${token}` });
-};
+        if (parseInt(chunkIndex) === parseInt(totalChunks) - 1) {
+            // Last chunk received, assemble the file
+            const filePath = path.join(storageDir, sanitizedFileName);
+            const writeStream = fs.createWriteStream(filePath);
+            let currentChunk = 0;
 
-// Access shared item
-export const accessSharedItem = async (req: Request, res: Response) => {
-    const { token } = req.params;
+            const appendChunk = () => {
+                const chunkPath = path.join(tempDir, `chunk_${currentChunk}`);
+                const readStream = fs.createReadStream(chunkPath);
 
-    const sharedItem = await SharedItem.findOne({ token });
-
-    if (!sharedItem) {
-        return res.status(404).json({ message: 'Shared item not found or expired' });
-    }
-
-    const fullPath = path.join(storageDir, sharedItem.itemPath);
-
-    // Check if item exists
-    if (!fs.existsSync(fullPath)) {
-        return res.status(404).json({ message: 'Item not found' });
-    }
-
-    fs.stat(fullPath, (err, stats) => {
-        if (err) {
-            console.error('Error accessing item:', err);
-            return res.status(500).json({ message: 'Error accessing item' });
-        }
-
-        if (stats.isDirectory()) {
-            // List directory contents
-            fs.readdir(fullPath, { withFileTypes: true }, (err, items) => {
-                if (err) {
-                    console.error('Error reading directory:', err);
-                    return res.status(500).json({ message: 'Error reading directory' });
-                }
-
-                const results = items.map((item) => {
-                    return {
-                        name: item.name,
-                        isFile: item.isFile(),
-                        isFolder: item.isDirectory(),
-                    };
+                readStream.on('end', () => {
+                    currentChunk++;
+                    if (currentChunk < totalChunks) {
+                        appendChunk();
+                    } else {
+                        writeStream.end();
+                        // Cleanup temp files
+                        fs.rmSync(tempDir, { recursive: true, force: true });
+                        res.json({ message: 'File uploaded successfully' });
+                    }
                 });
 
-                res.json({ items: results });
-            });
+                readStream.pipe(writeStream, { end: false });
+            };
+
+            appendChunk();
         } else {
-            // Send file
-            res.download(fullPath, (err) => {
-                if (err) {
-                    console.error('Error downloading file:', err);
-                    res.status(500).json({ message: 'Error downloading file' });
-                }
-            });
+            res.json({ message: 'Chunk uploaded successfully' });
         }
     });
+
+    req.on('error', (err) => {
+        console.error('Error uploading chunk:', err);
+        res.status(500).json({ message: 'Error uploading chunk' });
+    });
+};
+
+
+export const filePreview = async (req: Request, res: Response) => {
+    try {
+        const filePath = sanitizePath(req.query.path as string);
+        const fullPath = path.join(storageDir, filePath);
+
+        if (!isWithinStorage(fullPath)) {
+            return res.status(400).json({ message: 'Invalid path' });
+        }
+
+        const mimeType = mime.lookup(fullPath);
+
+        if (mimeType && mimeType.startsWith('image/')) {
+            // For images, send the image data
+            res.sendFile(fullPath);
+        } else if (mimeType && mimeType.startsWith('text/')) {
+            // For text files, send partial content
+            const data = await fsPromises.readFile(fullPath, 'utf-8');
+            res.send(data.substring(0, 1000)); // Send first 1000 characters
+        } else {
+            res.status(400).json({ message: 'Preview not available for this file type' });
+        }
+    } catch (error) {
+        console.error('Error generating file preview:', error);
+        res.status(500).json({ message: 'Error generating file preview' });
+    }
 };
