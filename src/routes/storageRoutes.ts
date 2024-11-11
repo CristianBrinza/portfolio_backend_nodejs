@@ -10,8 +10,12 @@ import {
     renameItem,
     deleteItem,
     downloadFile,
-    shareItem,
-    accessSharedItem,
+    moveItem,
+    restoreItem,
+    listTrashItems,
+    deleteItemPermanently,
+    listVersions,
+    uploadChunk, filePreview,
 } from '../controllers/storageController';
 
 const router = express.Router();
@@ -38,6 +42,37 @@ const router = express.Router();
  *           type: string
  *         required: false
  *         description: Path to the folder
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search query
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Sort by field (name, size, modifiedAt)
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *         required: false
+ *         description: Sort order
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Page number
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *         required: false
+ *         description: Items per page
  *     responses:
  *       200:
  *         description: Successful response with list of items
@@ -161,9 +196,44 @@ router.put('/storage/rename', authenticateToken(['admin', 'user']), renameItem);
 
 /**
  * @swagger
+ * /storage/move:
+ *   put:
+ *     summary: Move a file or folder
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       description: Move data
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - sourcePath
+ *               - destinationPath
+ *             properties:
+ *               sourcePath:
+ *                 type: string
+ *               destinationPath:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Item moved successfully
+ *       400:
+ *         description: Invalid path
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.put('/storage/move', authenticateToken(['admin', 'user']), moveItem);
+
+/**
+ * @swagger
  * /storage/delete:
  *   delete:
- *     summary: Delete a file or folder
+ *     summary: Delete a file or folder (move to trash)
  *     tags: [Storage]
  *     security:
  *       - bearerAuth: []
@@ -193,6 +263,122 @@ router.delete('/storage/delete', authenticateToken(['admin', 'user']), deleteIte
 
 /**
  * @swagger
+ * /storage/trash/items:
+ *   get:
+ *     summary: List items in trash
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Search query
+ *     responses:
+ *       200:
+ *         description: Successful response with list of trash items
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/storage/trash/items', authenticateToken(['admin', 'user']), listTrashItems);
+
+/**
+ * @swagger
+ * /storage/trash/restore:
+ *   put:
+ *     summary: Restore an item from trash
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       description: Item to restore
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - itemPath
+ *             properties:
+ *               itemPath:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Item restored successfully
+ *       400:
+ *         description: Invalid path
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.put('/storage/trash/restore', authenticateToken(['admin', 'user']), restoreItem);
+
+/**
+ * @swagger
+ * /storage/trash/delete:
+ *   delete:
+ *     summary: Permanently delete an item from trash
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       description: Item to delete permanently
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - itemPath
+ *             properties:
+ *               itemPath:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Item permanently deleted
+ *       400:
+ *         description: Invalid path
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.delete('/storage/trash/delete', authenticateToken(['admin', 'user']), deleteItemPermanently);
+
+/**
+ * @swagger
+ * /storage/versions:
+ *   get:
+ *     summary: List versions of a file
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: itemPath
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Path to the file
+ *     responses:
+ *       200:
+ *         description: Successful response with list of versions
+ *       400:
+ *         description: Invalid path
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/storage/versions', authenticateToken(['admin', 'user']), listVersions);
+
+/**
+ * @swagger
  * /storage/download:
  *   get:
  *     summary: Download a file
@@ -212,61 +398,35 @@ router.delete('/storage/delete', authenticateToken(['admin', 'user']), deleteIte
  *       500:
  *         description: Server error
  */
-router.get('/storage/download', downloadFile);
+router.get('/storage/download', authenticateToken(['admin', 'user']), downloadFile);
 
 /**
  * @swagger
- * /storage/share:
+ * /storage/upload-chunk:
  *   post:
- *     summary: Share a file or folder
+ *     summary: Upload a file chunk
  *     tags: [Storage]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
- *       description: Share data
+ *       description: Chunk data
  *       required: true
  *       content:
- *         application/json:
+ *         application/octet-stream:
  *           schema:
- *             type: object
- *             required:
- *               - itemPath
- *             properties:
- *               itemPath:
- *                 type: string
+ *             type: string
+ *             format: binary
  *     responses:
  *       200:
- *         description: Item shared successfully
+ *         description: Chunk uploaded successfully
  *       400:
- *         description: Invalid path
- *       401:
- *         description: Unauthorized
+ *         description: Invalid data
  *       500:
  *         description: Server error
  */
-router.post('/storage/share', authenticateToken(['admin', 'user']), shareItem);
+router.post('/storage/upload-chunk', authenticateToken(['admin', 'user']), uploadChunk);
 
-/**
- * @swagger
- * /storage/shared/{token}:
- *   get:
- *     summary: Access shared item
- *     tags: [Storage]
- *     parameters:
- *       - in: path
- *         name: token
- *         schema:
- *           type: string
- *         required: true
- *         description: Share token
- *     responses:
- *       200:
- *         description: Shared item accessed successfully
- *       404:
- *         description: Shared item not found or expired
- *       500:
- *         description: Server error
- */
-router.get('/storage/shared/:token', accessSharedItem);
+router.get('/storage/preview', filePreview);
+
 
 export default router;
