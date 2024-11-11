@@ -426,7 +426,50 @@ router.get('/storage/download', authenticateToken(['admin', 'user']), downloadFi
  */
 router.post('/storage/upload-chunk', authenticateToken(['admin', 'user']), uploadChunk);
 
-router.get('/storage/preview', filePreview);
+import { authenticateToken } from '../middleware/authMiddleware';
+
+/**
+ * @swagger
+ * /storage/preview:
+ *   get:
+ *     summary: Generate a preview of a file
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: path
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Path to the file for preview
+ *     responses:
+ *       200:
+ *         description: Preview of the file
+ *         content:
+ *           image/png:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           text/plain:
+ *             schema:
+ *               type: string
+ *         headers:
+ *           Content-Type:
+ *             description: The content type of the preview
+ *             schema:
+ *               type: string
+ *               example: image/png
+ *       400:
+ *         description: Preview not available for this file type
+ *       404:
+ *         description: File not found or invalid path
+ *       500:
+ *         description: Server error
+ */
+router.get('/storage/preview', authenticateToken(['admin', 'user']), filePreview);
+
+
 
 
 export default router;

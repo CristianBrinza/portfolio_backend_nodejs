@@ -504,24 +504,31 @@ export const filePreview = async (req: Request, res: Response) => {
         const filePath = sanitizePath(req.query.path as string);
         const fullPath = path.join(storageDir, filePath);
 
-        if (!isWithinStorage(fullPath)) {
-            return res.status(400).json({ message: 'Invalid path' });
+        // Ensure the path is within the storage directory and the file exists
+        if (!fullPath.startsWith(storageDir) || !fs.existsSync(fullPath)) {
+            return res.status(404).json({ message: 'File not found or invalid path' });
         }
 
         const mimeType = mime.lookup(fullPath);
 
+        // Serve image files
         if (mimeType && mimeType.startsWith('image/')) {
-            // For images, send the image data
-            res.sendFile(fullPath);
-        } else if (mimeType && mimeType.startsWith('text/')) {
-            // For text files, send partial content
-            const data = await fsPromises.readFile(fullPath, 'utf-8');
-            res.send(data.substring(0, 1000)); // Send first 1000 characters
-        } else {
-            res.status(400).json({ message: 'Preview not available for this file type' });
+            res.setHeader('Content-Type', mimeType);
+            return res.sendFile(fullPath);
         }
+
+        // Serve text files with limited preview
+        if (mimeType && mimeType.startsWith('text/')) {
+            const data = await fs.promises.readFile(fullPath, 'utf-8');
+            res.setHeader('Content-Type', 'text/plain');
+            return res.send(data.substring(0, 1000));
+        }
+
+        // Unsupported preview type
+        res.status(400).json({ message: 'Preview not available for this file type' });
     } catch (error) {
         console.error('Error generating file preview:', error);
         res.status(500).json({ message: 'Error generating file preview' });
     }
 };
+
