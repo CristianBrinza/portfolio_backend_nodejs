@@ -16,8 +16,8 @@ import {
     deleteItemPermanently,
     listVersions,
     uploadChunk, filePreview,
- createShareLink,
-    getSharedFile
+    createShareLink,
+    getSharedFile, removeFavorite, addFavorite
 
 } from '../controllers/storageController';
 
@@ -530,6 +530,63 @@ router.post('/storage/share', authenticateToken(['admin', 'user']), createShareL
  *         description: Server error
  */
 router.get('/storage/shared/:token', getSharedFile);
+
+
+/**
+ * @swagger
+ * /storage/favorite:
+ *   post:
+ *     summary: Add an item to favorites
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       description: Item to add to favorites
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - itemPath
+ *             properties:
+ *               itemPath:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Item added to favorites
+ *       500:
+ *         description: Server error
+ */
+router.post('/storage/favorite', authenticateToken(['admin', 'user']), addFavorite);
+
+/**
+ * @swagger
+ * /storage/favorite:
+ *   delete:
+ *     summary: Remove an item from favorites
+ *     tags: [Storage]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       description: Item to remove from favorites
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - itemPath
+ *             properties:
+ *               itemPath:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Item removed from favorites
+ *       500:
+ *         description: Server error
+ */
+router.delete('/storage/favorite', authenticateToken(['admin', 'user']), removeFavorite);
 
 
 export default router;

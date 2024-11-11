@@ -1,5 +1,3 @@
-// controllers/storageController.ts
-
 import { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -10,6 +8,7 @@ import { promisify } from 'util';
 import { LRUCache } from 'lru-cache';
 import FileActivity from '../models/FileActivity';
 import SharedFile from '../models/SharedFile';
+import FavoriteItem from '../models/FavoriteItem'; // Import FavoriteItem model
 
 const pipeline = promisify(require('stream').pipeline);
 
@@ -41,7 +40,6 @@ const storage = multer.diskStorage({
     },
 });
 
-
 // Multer upload instance with limits
 export const upload = multer({
     storage,
@@ -60,12 +58,11 @@ const cache = new LRUCache<string, Buffer>({
 
 // Helper function for sanitizing paths
 const sanitizePath = (inputPath: string): string => {
-    return path.normalize(inputPath).replace(/^(\.\.(\/|\\|$))+/, '');
+    return path.normalize(inputPath).replace(/^(\.\.(\/|\\|$))+/, '').replace(/^\/+/, '');
 };
 
-
 // List files and folders with search, filter, sort, and pagination
-export const listItems = (req: Request, res: Response) => {
+export const listItems = async (req: Request, res: Response) => {
     const folderPath = sanitizePath((req.query.path as string) || '');
     const searchQuery = (req.query.search as string) || '';
     const sortBy = (req.query.sortBy as string) || 'name';
@@ -73,64 +70,144 @@ export const listItems = (req: Request, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 50;
 
-    const fullPath = path.join(storageDir, folderPath);
+    let results: any[] = [];
 
-    // Prevent directory traversal
-    if (!fullPath.startsWith(storageDir)) {
-        return res.status(400).json({ message: 'Invalid path' });
-    }
+    if (folderPath === '.favorite') {
+        // Get favorite items for the user
+        const favoriteItems = await FavoriteItem.find({ userId: req.user._id }).select('path').lean();
 
-    fs.readdir(fullPath, { withFileTypes: true }, (err, items) => {
-        if (err) {
+        for (const favItem of favoriteItems) {
+            const itemFullPath = path.join(storageDir, favItem.path);
+            try {
+                const stats = fs.statSync(itemFullPath);
+                const itemName = path.basename(favItem.path);
+                results.push({
+                    name: itemName,
+                    path: favItem.path,
+                    isFile: stats.isFile(),
+                    isFolder: stats.isDirectory(),
+                    size: stats.size,
+                    modifiedAt: stats.mtime,
+                    createdAt: stats.birthtime,
+                    mimeType: stats.isFile() ? mime.lookup(itemName) || 'application/octet-stream' : null,
+                    isFavorite: true,
+                });
+            } catch (error) {
+                console.error('Error accessing favorite item:', error);
+            }
+        }
+    } else {
+        const fullPath = path.join(storageDir, folderPath);
+
+        // Prevent directory traversal
+        if (!fullPath.startsWith(storageDir)) {
+            return res.status(400).json({ message: 'Invalid path' });
+        }
+
+        try {
+            const items = fs.readdirSync(fullPath, { withFileTypes: true });
+
+            results = items.map((item) => {
+                const itemPath = path.join(folderPath, item.name);
+                const stats = fs.statSync(path.join(fullPath, item.name));
+                return {
+                    name: item.name,
+                    path: itemPath,
+                    isFile: item.isFile(),
+                    isFolder: item.isDirectory(),
+                    size: stats.size,
+                    modifiedAt: stats.mtime,
+                    createdAt: stats.birthtime,
+                    mimeType: item.isFile() ? mime.lookup(item.name) || 'application/octet-stream' : null,
+                };
+            });
+
+            // Get list of favorite paths for the current user
+            const favoriteItems = await FavoriteItem.find({ userId: req.user._id }).select('path').lean();
+            const favoritePaths = new Set(favoriteItems.map((item) => item.path));
+
+            // Add isFavorite property to each item
+            results = results.map((item) => {
+                return {
+                    ...item,
+                    isFavorite: favoritePaths.has(item.path),
+                };
+            });
+        } catch (err) {
             console.error('Error reading directory:', err);
             return res.status(500).json({ message: 'Error reading directory' });
         }
+    }
 
-        let results = items.map((item) => {
-            const itemPath = path.join(folderPath, item.name);
-            const stats = fs.statSync(path.join(fullPath, item.name));
-            return {
-                name: item.name,
-                path: itemPath,
-                isFile: item.isFile(),
-                isFolder: item.isDirectory(),
-                size: stats.size,
-                modifiedAt: stats.mtime,
-                createdAt: stats.birthtime,
-                mimeType: item.isFile() ? mime.lookup(item.name) || 'application/octet-stream' : null,
-            };
-        });
+    // Filter by search query
+    if (searchQuery) {
+        results = results.filter((item) =>
+            item.name.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }
 
-        // Filter by search query
-        if (searchQuery) {
-            results = results.filter((item) =>
-                item.name.toLowerCase().includes(searchQuery.toLowerCase())
-            );
+    // Sort results
+    results.sort((a, b) => {
+        let compare = 0;
+        if (sortBy === 'name') {
+            compare = a.name.localeCompare(b.name);
+        } else if (sortBy === 'size') {
+            compare = a.size - b.size;
+        } else if (sortBy === 'modifiedAt') {
+            compare = new Date(a.modifiedAt).getTime() - new Date(b.modifiedAt).getTime();
+        } else if (sortBy === 'createdAt') {
+            compare = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         }
 
-        // Sort results
-        results.sort((a, b) => {
-            const compareA = a[sortBy as keyof typeof a];
-            const compareB = b[sortBy as keyof typeof b];
-
-            if (compareA < compareB) return sortOrder === 'asc' ? -1 : 1;
-            if (compareA > compareB) return sortOrder === 'asc' ? 1 : -1;
-            return 0;
-        });
-
-        // Pagination
-        const totalItems = results.length;
-        const totalPages = Math.ceil(totalItems / pageSize);
-        const paginatedResults = results.slice((page - 1) * pageSize, page * pageSize);
-
-        res.json({
-            items: paginatedResults,
-            page,
-            pageSize,
-            totalItems,
-            totalPages,
-        });
+        return sortOrder === 'asc' ? compare : -compare;
     });
+
+    // Pagination
+    const totalItems = results.length;
+    const totalPages = Math.ceil(totalItems / pageSize);
+    const paginatedResults = results.slice((page - 1) * pageSize, page * pageSize);
+
+    res.json({
+        items: paginatedResults,
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+    });
+};
+
+// Add item to favorites
+export const addFavorite = async (req: Request, res: Response) => {
+    const { itemPath } = req.body;
+    const sanitizedItemPath = sanitizePath(itemPath);
+
+    try {
+        await FavoriteItem.updateOne(
+            { userId: req.user._id, path: sanitizedItemPath },
+            { userId: req.user._id, path: sanitizedItemPath },
+            { upsert: true }
+        );
+
+        res.json({ message: 'Item added to favorites' });
+    } catch (error) {
+        console.error('Error adding favorite:', error);
+        res.status(500).json({ message: 'Error adding favorite' });
+    }
+};
+
+// Remove item from favorites
+export const removeFavorite = async (req: Request, res: Response) => {
+    const { itemPath } = req.body;
+    const sanitizedItemPath = sanitizePath(itemPath);
+
+    try {
+        await FavoriteItem.deleteOne({ userId: req.user._id, path: sanitizedItemPath });
+
+        res.json({ message: 'Item removed from favorites' });
+    } catch (error) {
+        console.error('Error removing favorite:', error);
+        res.status(500).json({ message: 'Error removing favorite' });
+    }
 };
 
 // Create a new folder
