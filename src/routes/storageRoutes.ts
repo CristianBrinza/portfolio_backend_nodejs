@@ -429,8 +429,6 @@ router.get('/storage/download', authenticateToken(['admin', 'user']), downloadFi
  */
 router.post('/storage/upload-chunk', authenticateToken(['admin', 'user']), uploadChunk);
 
-import { authenticateToken } from '../middleware/authMiddleware';
-
 /**
  * @swagger
  * /storage/preview:
