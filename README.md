@@ -6,5 +6,5 @@ http://localhost:5006/api-docs
 ```
 
 ```
-ngrok http 5006
+ssh -R 80:localhost:5006 serveo.net
 ```
