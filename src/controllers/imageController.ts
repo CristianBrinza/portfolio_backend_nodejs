@@ -39,9 +39,11 @@ export const uploadImage = (req: Request, res: Response) => {
 export const updateImageName = (req: Request, res: Response) => {
     const { oldName, newName } = req.body;
 
+    // Updated regex to include parentheses
+    const validFilenameRegex = /^[a-zA-Z0-9_\-\.\(\)]+\.(jpg|jpeg|png|gif)$/i;
+
     // Validate file names to prevent directory traversal attacks
-    if (!/^[a-zA-Z0-9_\-\.]+\.(jpg|jpeg|png|gif)$/i.test(oldName) ||
-        !/^[a-zA-Z0-9_\-\.]+\.(jpg|jpeg|png|gif)$/i.test(newName)) {
+    if (!validFilenameRegex.test(oldName) || !validFilenameRegex.test(newName)) {
         return res.status(400).json({ message: 'Invalid file names' });
     }
 
@@ -61,8 +63,11 @@ export const updateImageName = (req: Request, res: Response) => {
 export const deleteImage = (req: Request, res: Response) => {
     const { filename } = req.params;
 
+    // Updated regex to include parentheses
+    const validFilenameRegex = /^[a-zA-Z0-9_\-\.\(\)]+\.(jpg|jpeg|png|gif)$/i;
+
     // Validate filename
-    if (!/^[a-zA-Z0-9_\-\.]+\.(jpg|jpeg|png|gif)$/i.test(filename)) {
+    if (!validFilenameRegex.test(filename)) {
         return res.status(400).json({ message: 'Invalid filename' });
     }
 
