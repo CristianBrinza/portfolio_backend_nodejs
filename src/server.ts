@@ -15,6 +15,7 @@ import certificationsRoutes from './routes/certificationsRoutes';
 import path from 'path';
 import userRoutes from './routes/userRoutes';
 import pagesRoutes from "./routes/pagesRoutes";
+import blogRoutes from "./routes/blogRoutes";
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use('/', certificationsRoutes);
 app.use('/', pagesRoutes);
 app.use('/', imagesRoutes);
 app.use('/', storageRoutes);
+app.use('/', blogRoutes);
 
 // Serve images from the 'uploads/profile_images' directory
 app.use(
