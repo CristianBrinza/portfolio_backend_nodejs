@@ -14,6 +14,7 @@ import swaggerOptions from './swagger/swagger';
 import certificationsRoutes from './routes/certificationsRoutes';
 import path from 'path';
 import userRoutes from './routes/userRoutes';
+import pagesRoutes from "./routes/pagesRoutes";
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use('/auth', authRoutes);
 app.use('/', userRoutes);
 app.use('/', portfolioRoutes);
 app.use('/', certificationsRoutes);
+app.use('/', pagesRoutes);
 app.use('/', imagesRoutes);
 app.use('/', storageRoutes);
 
