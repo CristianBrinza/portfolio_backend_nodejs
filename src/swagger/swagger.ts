@@ -14,6 +14,9 @@ const swaggerOptions = {
             {
                 url: `http://localhost:${PORT}`,
             },
+            {
+                url: `https://backend.cristianbrinza.com:${PORT}`,
+            },
         ],
         components: {
             securitySchemes: {
