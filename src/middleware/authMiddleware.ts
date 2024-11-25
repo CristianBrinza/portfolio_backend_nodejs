@@ -1,3 +1,5 @@
+// middleware/authMiddleware.ts
+
 import jwt from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
 import User from '../models/User';
@@ -27,8 +29,13 @@ export const authenticateToken = (roles: string[]) => {
 
             next();
         } catch (error) {
-            console.error('Authentication error:', error);
-            res.status(403).json({ message: 'Forbidden: Invalid token' });
+            if (error.name === 'TokenExpiredError') {
+                console.error('Token expired at:', error.expiredAt);
+                return res.status(401).json({ message: 'Unauthorized: Token has expired' });
+            } else {
+                console.error('Authentication error:', error);
+                return res.status(403).json({ message: 'Forbidden: Invalid token' });
+            }
         }
     };
 };

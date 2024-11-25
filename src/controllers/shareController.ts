@@ -5,6 +5,8 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import SharedItem from '../models/SharedItem';
 import ChangeLog from '../models/ChangeLog';
+import archiver from 'archiver';
+
 
 // Configure multer for multiple file uploads
 const storage = multer.diskStorage({
@@ -153,6 +155,7 @@ export const createShareLink = async (req: Request, res: Response) => {
     try {
         const { items } = req.body;
 
+        // Validate request body
         if (!items || !Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ message: 'No items provided for sharing' });
         }
@@ -166,15 +169,18 @@ export const createShareLink = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Invalid items in the list' });
         }
 
-        // Validate items exist
-        const invalidItems = validItems.filter((itemPath: string) => {
+        // Filter out folders and validate that files exist
+        // Filter out folders and validate that files exist
+        const validFiles = validItems.filter((itemPath: string) => {
             const fullPath = path.join(basePath, itemPath);
-            return !fs.existsSync(fullPath);
+            const stats = fs.existsSync(fullPath) ? fs.statSync(fullPath) : null;
+            return stats && stats.isFile(); // Only include files
         });
 
-        if (invalidItems.length > 0) {
-            return res.status(404).json({ message: 'Some items do not exist', invalidItems });
+        if (validFiles.length === 0) {
+            return res.status(400).json({ message: 'No valid files to share' });
         }
+
 
         // Generate a unique code
         let code: string;
@@ -187,7 +193,7 @@ export const createShareLink = async (req: Request, res: Response) => {
         // Create shared item entry
         const sharedItem = new SharedItem({
             code,
-            paths: validItems,
+            paths: validFiles,
             createdBy: req.user._id,
         });
 
@@ -197,7 +203,7 @@ export const createShareLink = async (req: Request, res: Response) => {
         const log = new ChangeLog({
             user: req.user._id,
             action: 'share',
-            itemPath: validItems.join(', '),
+            itemPath: validFiles.join(', '),
         });
         await log.save();
 
@@ -207,6 +213,7 @@ export const createShareLink = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
 
 // List all share links created by the user
 export const listShareLinks = async (req: Request, res: Response) => {
@@ -276,3 +283,91 @@ export const listItems = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+
+// Download a shared item (file)
+export const downloadSharedItem = async (req: Request, res: Response) => {
+    const { code } = req.params;
+    const { path: filePath } = req.query;
+
+    const sharedItem = await SharedItem.findOne({ code });
+
+    if (!sharedItem) {
+        return res.status(404).json({ message: 'Share link not found or expired' });
+    }
+
+    if (!filePath || typeof filePath !== 'string') {
+        return res.status(400).json({ message: 'Invalid file path' });
+    }
+
+    if (!sharedItem.paths.includes(filePath)) {
+        return res.status(403).json({ message: 'Access denied to this file' });
+    }
+
+    const basePath = path.join(__dirname, '../share');
+    const fullPath = path.join(basePath, filePath);
+
+    if (!fs.existsSync(fullPath)) {
+        return res.status(404).json({ message: 'File not found' });
+    }
+
+    res.download(fullPath, path.basename(fullPath), (err) => {
+        if (err) {
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    });
+};
+
+// Download all shared items as a zip
+export const downloadAllSharedItems = async (req: Request, res: Response) => {
+    const { code } = req.params;
+
+    const sharedItem = await SharedItem.findOne({ code });
+
+    if (!sharedItem) {
+        return res.status(404).json({ message: 'Share link not found or expired' });
+    }
+
+    const basePath = path.join(__dirname, '../share');
+
+    // Create an instance of archiver
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    // Set the response headers for downloading the zip file
+    res.attachment('shared_files.zip');
+
+    // Pipe archive data to the response
+    archive.pipe(res);
+
+    // Iterate over the shared item paths and add them to the archive
+    for (const itemPath of sharedItem.paths) {
+        const fullPath = path.join(basePath, itemPath);
+
+        if (fs.existsSync(fullPath)) {
+            const stats = fs.statSync(fullPath);
+
+            if (stats.isFile()) {
+                // Add a file to the archive
+                archive.file(fullPath, { name: path.relative(basePath, fullPath) });
+            } else if (stats.isDirectory()) {
+                // Add a directory to the archive
+                archive.directory(fullPath, path.relative(basePath, fullPath));
+            }
+        } else {
+            console.warn(`Path not found: ${fullPath}`);
+        }
+    }
+
+    // Listen for errors and respond appropriately
+    archive.on('error', (err) => {
+        console.error('Error during archiving:', err);
+        res.status(500).send({ message: 'Error creating archive' });
+    });
+
+    // Finalize the archive
+    archive.finalize().catch((err) => {
+        console.error('Error finalizing archive:', err);
+        res.status(500).send({ message: 'Error finalizing archive' });
+    });
+};
+

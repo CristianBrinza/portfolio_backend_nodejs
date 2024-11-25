@@ -12,6 +12,8 @@ import {
     accessSharedItems,
     getChangeLog,
     listItems,
+    downloadSharedItem,
+    downloadAllSharedItems,
 } from '../controllers/shareController';
 
 const router = express.Router();
@@ -287,7 +289,7 @@ router.delete('/share/links/:code', authenticateToken(['admin', 'user']), delete
  * @swagger
  * /share/{code}:
  *   get:
- *     summary: Access shared items via share link
+ *     summary: Access shared items via a share link
  *     tags: [Share]
  *     parameters:
  *       - in: path
@@ -295,14 +297,24 @@ router.delete('/share/links/:code', authenticateToken(['admin', 'user']), delete
  *         schema:
  *           type: string
  *         required: true
- *         description: Share code
+ *         description: Unique share code
  *     responses:
  *       200:
- *         description: Shared items retrieved successfully
+ *         description: List of shared items retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 items:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                     description: Relative paths of shared items
  *       404:
  *         description: Share link not found or expired
  *       500:
- *         description: Server error
+ *         description: Internal server error
  */
 router.get('/share/:code', accessSharedItems);
 
@@ -321,5 +333,74 @@ router.get('/share/:code', accessSharedItems);
  *         description: Server error
  */
 router.get('/share/changelog', authenticateToken(['admin', 'user']), getChangeLog);
+
+
+/**
+ * @swagger
+ * /share/{code}/download:
+ *   get:
+ *     summary: Download a specific shared file
+ *     tags: [Share]
+ *     parameters:
+ *       - in: path
+ *         name: code
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Unique share code
+ *       - in: query
+ *         name: path
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Path of the file to download
+ *     responses:
+ *       200:
+ *         description: File downloaded successfully
+ *         content:
+ *           application/octet-stream:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: Invalid file path
+ *       403:
+ *         description: Access denied to this file
+ *       404:
+ *         description: Share link or file not found
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/share/:code/download', downloadSharedItem);
+
+/**
+ * @swagger
+ * /share/{code}/download-all:
+ *   get:
+ *     summary: Download all shared items as a zip file
+ *     tags: [Share]
+ *     parameters:
+ *       - in: path
+ *         name: code
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Unique share code
+ *     responses:
+ *       200:
+ *         description: Zip file downloaded successfully
+ *         content:
+ *           application/zip:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       404:
+ *         description: Share link not found or expired
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/share/:code/download-all', downloadAllSharedItems);
+
+
 
 export default router;
