@@ -34,4 +34,5 @@ src/data/portfolioData.json
 /src/uploads
 /src/data
 /src/storage
+/src/share
 *.png
