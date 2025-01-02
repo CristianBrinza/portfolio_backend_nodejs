@@ -521,7 +521,6 @@ router.post(
  */
 router.get(
     '/share/preview/:filePath(*)',
-    authenticateToken(['admin', 'user']),
     previewFile
 );
 
