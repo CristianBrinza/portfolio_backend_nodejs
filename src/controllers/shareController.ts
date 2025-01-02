@@ -371,3 +371,26 @@ export const downloadAllSharedItems = async (req: Request, res: Response) => {
     });
 };
 
+
+export const previewFile = async (req: Request, res: Response) => {
+    try {
+        // The captured file path from the URL
+        const { filePath } = req.params;
+        // Construct the absolute path to the file on your server
+        const basePath = path.join(__dirname, '../share');
+        const fullPath = path.join(basePath, filePath);
+
+        if (!fs.existsSync(fullPath)) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+
+        // Optionally, set appropriate content-type if you want:
+        // e.g., image/png, video/mp4, etc. For a quick approach:
+        // res.sendFile does set headers automatically if Node can detect the file type
+        // or if the OS path library can guess from extension.
+        return res.sendFile(fullPath);
+    } catch (error) {
+        console.error('previewFile error:', error);
+        return res.status(500).json({ message: 'Error fetching file' });
+    }
+};

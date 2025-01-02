@@ -13,7 +13,7 @@ import {
     getChangeLog,
     listItems,
     downloadSharedItem,
-    downloadAllSharedItems,
+    downloadAllSharedItems, previewFile,
 } from '../controllers/shareController';
 import { uploadChunk, completeUpload } from '../controllers/chunkUploadController';
 import {chunkUploadMiddleware} from "../middleware/chunkMiddleware";
@@ -480,6 +480,49 @@ router.post(
     '/share/complete-upload',
     authenticateToken(['admin', 'user']),
     completeUpload
+);
+
+
+/**
+ * @swagger
+ * /share/preview/{filePath}:
+ *   get:
+ *     summary: Preview a file from the share directory
+ *     tags: [Share]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: filePath
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The relative path of the file to preview
+ *     responses:
+ *       200:
+ *         description: Returns the file for preview
+ *         content:
+ *           image/*:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           video/*:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           application/octet-stream:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       404:
+ *         description: File not found
+ *       500:
+ *         description: Error fetching file
+ */
+router.get(
+    '/share/preview/:filePath(*)',
+    authenticateToken(['admin', 'user']),
+    previewFile
 );
 
 export default router;
