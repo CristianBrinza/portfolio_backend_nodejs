@@ -15,6 +15,9 @@ import {
     downloadSharedItem,
     downloadAllSharedItems,
 } from '../controllers/shareController';
+import { uploadChunk, completeUpload } from '../controllers/chunkUploadController';
+import {chunkUploadMiddleware} from "../middleware/chunkMiddleware";
+
 
 const router = express.Router();
 
@@ -401,6 +404,82 @@ router.get('/share/:code/download', downloadSharedItem);
  */
 router.get('/share/:code/download-all', downloadAllSharedItems);
 
+/**
+ * @swagger
+ * /share/upload-chunk:
+ *   post:
+ *     summary: Upload a single chunk
+ *     tags: [Share Chunk Upload]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       description: Chunk upload data
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               chunk:
+ *                 type: string
+ *                 format: binary
+ *               chunkIndex:
+ *                 type: number
+ *               totalChunks:
+ *                 type: number
+ *               fileName:
+ *                 type: string
+ *               uploadId:
+ *                 type: string
+ *               path:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Chunk uploaded
+ *       400:
+ *         description: Missing data
+ *       500:
+ *         description: Server error
+ */
+router.post(
+    '/share/upload-chunk',
+    authenticateToken(['admin', 'user']),
+    chunkUploadMiddleware.single('chunk'),
+    uploadChunk
+);
 
+/**
+ * @swagger
+ * /share/complete-upload:
+ *   post:
+ *     summary: Complete the chunked upload and assemble the file
+ *     tags: [Share Chunk Upload]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       description: Completion data
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               uploadId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: File assembled successfully
+ *       400:
+ *         description: Missing chunk or data
+ *       404:
+ *         description: No chunk upload data found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+    '/share/complete-upload',
+    authenticateToken(['admin', 'user']),
+    completeUpload
+);
 
 export default router;
