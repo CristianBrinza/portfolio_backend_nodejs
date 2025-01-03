@@ -148,7 +148,7 @@ router.get('/add-files/:code', listFiles);
  *       400:
  *         description: Bad Request
  */
-router.post('/add-files/:code', uploadFiles);
+//router.post('/add-files/:code', uploadFiles);
 
 /**
  * @swagger
