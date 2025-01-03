@@ -8,7 +8,12 @@ import {
     downloadFile,
     downloadAllFiles,
 } from '../controllers/addFilesController';
+import {
+    uploadChunkAddFiles,
+    completeUploadAddFiles,
+} from '../controllers/addFilesChunkController';
 import { authenticateToken } from '../middleware/authMiddleware';
+import {chunkUploadMiddleware} from "../middleware/chunkMiddleware";
 
 const router = Router();
 
@@ -202,5 +207,18 @@ router.get('/add-files/:code/:fileName', downloadFile);
  *         description: Folder not found
  */
 router.get('/add-files/:code/download-all', downloadAllFiles);
+
+// NEW chunk-based endpoints
+router.post(
+    '/add-files/upload-chunk',
+    authenticateToken(['admin', 'user']),
+    chunkUploadMiddleware.single('chunk'),
+    uploadChunkAddFiles
+);
+router.post(
+    '/add-files/complete-upload',
+    authenticateToken(['admin', 'user']),
+    completeUploadAddFiles
+);
 
 export default router;
