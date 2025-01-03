@@ -211,13 +211,11 @@ router.get('/add-files/:code/download-all', downloadAllFiles);
 // NEW chunk-based endpoints
 router.post(
     '/add-files/upload-chunk',
-    authenticateToken(['admin', 'user']),
     chunkUploadMiddleware.single('chunk'),
     uploadChunkAddFiles
 );
 router.post(
     '/add-files/complete-upload',
-    authenticateToken(['admin', 'user']),
     completeUploadAddFiles
 );
 

@@ -26,21 +26,15 @@ export const uploadChunkAddFiles = async (req: Request, res: Response) => {
                     uploadId,
                     fileName,
                     totalChunks,
-                    path: code,         // store the "code" in DB so we know final folder
-                    createdBy: req.user._id,
+                    path: code,
+
                 },
                 $inc: { receivedChunks: 1 },
             },
             { new: true, upsert: true }
         );
 
-        // (Optional) Log
-        const log = new ChangeLog({
-            user: req.user._id,
-            action: 'uploadChunkAddFiles',
-            itemPath: `${code}/${fileName} [chunkIndex=${chunkIndex}]`,
-        });
-        await log.save();
+
 
         return res.status(200).json({ message: 'Chunk uploaded', chunkIndex });
     } catch (error) {
@@ -89,13 +83,6 @@ export const completeUploadAddFiles = async (req: Request, res: Response) => {
         // Clean up DB
         await ChunkUpload.deleteOne({ uploadId });
 
-        // Log final file creation
-        const log = new ChangeLog({
-            user: req.user._id,
-            action: 'completeUploadAddFiles',
-            itemPath: path.relative(basePath, finalFilePath),
-        });
-        await log.save();
 
         return res.status(200).json({ message: 'File assembled successfully' });
     } catch (error) {
