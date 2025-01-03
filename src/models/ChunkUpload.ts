@@ -12,7 +12,9 @@ export interface IChunkUpload extends Document {
 }
 
 const ChunkUploadSchema = new Schema<IChunkUpload>({
-    uploadId: { type: String, required: true, unique: true },
+    uploadId: { type: String, required: true },
+    //uploadId: { type: String, required: true, unique: true },
+
     fileName: { type: String, required: true },
     totalChunks: { type: Number, required: true },
     receivedChunks: { type: Number, default: 0 },

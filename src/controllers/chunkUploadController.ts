@@ -25,19 +25,23 @@ export const uploadChunk = async (req: Request, res: Response) => {
         }
 
         // Optionally, track in DB
-        let chunkUpload = await ChunkUpload.findOne({ uploadId });
-        if (!chunkUpload) {
-            chunkUpload = new ChunkUpload({
-                uploadId,
-                fileName,
-                totalChunks,
-                receivedChunks: 0,
-                path: destPath,
-                createdBy: req.user._id,
-            });
-        }
-        chunkUpload.receivedChunks += 1;
-        await chunkUpload.save();
+        const chunkUpload = await ChunkUpload.findOneAndUpdate(
+            { uploadId },
+            {
+                $setOnInsert: {
+                    uploadId,
+                    fileName,
+                    totalChunks,
+                    path: destPath,
+                    createdBy: req.user._id
+                    // No "receivedChunks" here
+                },
+                $inc: { receivedChunks: 1 }, // This will create the field if it doesn’t exist yet
+            },
+            { new: true, upsert: true }
+        );
+
+
 
         // (Optional) Log
         const log = new ChangeLog({
