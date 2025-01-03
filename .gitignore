@@ -36,3 +36,4 @@ src/data/portfolioData.json
 /src/storage
 /src/share
 *.png
+/src/get_files
