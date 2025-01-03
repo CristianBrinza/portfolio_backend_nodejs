@@ -17,7 +17,7 @@ const router = Router();
  * /add-files/generate:
  *   post:
  *     summary: Generate a new code for file sharing
- *     tags: [Admin]
+ *     tags: [Files]
  *     security:
  *       - BearerAuth: []
  *     responses:
@@ -41,7 +41,7 @@ router.post('/add-files/generate',  authenticateToken(['admin', 'user']), genera
  * /add-files/codes:
  *   get:
  *     summary: Get all generated codes
- *     tags: [Admin]
+ *     tags: [Files]
  *     security:
  *       - BearerAuth: []
  *     responses:
@@ -68,7 +68,7 @@ router.get('/add-files/codes',  authenticateToken(['admin', 'user']), getAllCode
  * /add-files/{code}:
  *   delete:
  *     summary: Delete a code and its associated files
- *     tags: [Admin]
+ *     tags: [Files]
  *     security:
  *       - BearerAuth: []
  *     parameters:
@@ -91,7 +91,7 @@ router.delete('/add-files/:code',  authenticateToken(['admin', 'user']), deleteC
  * /add-files/{code}:
  *   get:
  *     summary: List all files for a given code
- *     tags: [Public]
+ *     tags: [Files]
  *     parameters:
  *       - in: path
  *         name: code
@@ -117,7 +117,7 @@ router.get('/add-files/:code', listFiles);
  * /add-files/{code}:
  *   post:
  *     summary: Upload files for a given code
- *     tags: [Public]
+ *     tags: [Files]
  *     parameters:
  *       - in: path
  *         name: code
@@ -150,7 +150,7 @@ router.post('/add-files/:code', uploadFiles);
  * /add-files/{code}/{fileName}:
  *   get:
  *     summary: Download a specific file
- *     tags: [Public]
+ *     tags: [Files]
  *     parameters:
  *       - in: path
  *         name: code
@@ -182,7 +182,7 @@ router.get('/add-files/:code/:fileName', downloadFile);
  * /add-files/{code}/download-all:
  *   get:
  *     summary: Download all files in a folder as a ZIP
- *     tags: [Public]
+ *     tags: [Files]
  *     parameters:
  *       - in: path
  *         name: code

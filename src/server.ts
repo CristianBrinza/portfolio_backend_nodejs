@@ -22,7 +22,9 @@ import addFilesRoutes from "./routes/ addFilesRoutes";
 const app = express();
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '10gb' }));
+// app.use(express.json());
+app.use(express.urlencoded({ limit: '10gb', extended: true }));
 app.use(cors());
 
 // Swagger setup

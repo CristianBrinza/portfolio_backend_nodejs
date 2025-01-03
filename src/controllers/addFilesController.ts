@@ -47,7 +47,10 @@ const storage = multer.diskStorage({
         cb(null, file.originalname);
     },
 });
-const upload = multer({ storage });
+const upload = multer({ storage,
+    limits: {
+        fileSize: 6 * 1024 * 1024 * 1024, // 6 GB in bytes
+    }, });
 
 // (5) Upload multiple files
 export const uploadFiles = [
