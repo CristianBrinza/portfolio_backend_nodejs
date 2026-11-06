@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import ChunkUpload from '../models/ChunkUpload';
 import ChangeLog from '../models/ChangeLog'; // if you want to log
+import { isSafeFileName, resolveInside } from '../utils/safePath';
 
 // POST /share/upload-chunk
 export const uploadChunk = async (req: Request, res: Response) => {
@@ -82,7 +83,11 @@ export const completeUpload = async (req: Request, res: Response) => {
 
         const { fileName, totalChunks, path: destPath } = chunkUpload;
         const basePath = path.join(__dirname, '../share');
-        const targetFolder = destPath ? path.join(basePath, destPath) : basePath;
+        const targetFolder = destPath ? resolveInside(basePath, destPath) : basePath;
+        if (!targetFolder || !isSafeFileName(fileName)) {
+            await ChunkUpload.deleteOne({ uploadId });
+            return res.status(400).json({ message: 'Invalid path' });
+        }
         if (!fs.existsSync(targetFolder)) {
             fs.mkdirSync(targetFolder, { recursive: true });
         }

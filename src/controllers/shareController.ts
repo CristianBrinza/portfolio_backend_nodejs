@@ -6,14 +6,17 @@ import { v4 as uuidv4 } from 'uuid';
 import SharedItem from '../models/SharedItem';
 import ChangeLog from '../models/ChangeLog';
 import archiver from 'archiver';
+import { isSafeFileName, resolveInside } from '../utils/safePath';
+
+const shareRoot = path.join(__dirname, '../share');
 
 
 // Configure multer for multiple file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const { path: uploadPathParam } = req.body;
-        const basePath = path.join(__dirname, '../share');
-        const uploadPath = uploadPathParam ? path.join(basePath, uploadPathParam) : basePath;
+        const uploadPath = uploadPathParam ? resolveInside(shareRoot, uploadPathParam) : shareRoot;
+        if (!uploadPath) return cb(new Error('Invalid path'), '');
         fs.mkdirSync(uploadPath, { recursive: true });
         cb(null, uploadPath);
     },
@@ -55,7 +58,11 @@ export const uploadFiles = [
 export const createFolder = async (req: Request, res: Response) => {
     const { folderName, path: folderPathParam } = req.body;
     const basePath = path.join(__dirname, '../share');
-    const folderPath = folderPathParam ? path.join(basePath, folderPathParam, folderName) : path.join(basePath, folderName);
+    const folderPath = resolveInside(basePath, folderPathParam || '', folderName);
+
+    if (!folderPath || !isSafeFileName(folderName)) {
+        return res.status(400).json({ message: 'Invalid path' });
+    }
 
     if (fs.existsSync(folderPath)) {
         return res.status(400).json({ message: 'Folder already exists' });
@@ -78,8 +85,12 @@ export const createFolder = async (req: Request, res: Response) => {
 export const renameItem = async (req: Request, res: Response) => {
     const { oldPath, newName } = req.body;
     const basePath = path.join(__dirname, '../share');
-    const oldFullPath = path.join(basePath, oldPath);
-    const newFullPath = path.join(basePath, path.dirname(oldPath), newName);
+    const oldFullPath = resolveInside(basePath, oldPath);
+    const newFullPath = oldFullPath && resolveInside(path.dirname(oldFullPath), newName);
+
+    if (!oldFullPath || !newFullPath || oldFullPath === path.resolve(basePath) || !isSafeFileName(newName)) {
+        return res.status(400).json({ message: 'Invalid path' });
+    }
 
     if (!fs.existsSync(oldFullPath)) {
         return res.status(404).json({ message: 'Item not found' });
@@ -107,7 +118,11 @@ export const deleteItem = async (req: Request, res: Response) => {
     }
 
     const basePath = path.join(__dirname, '../share');
-    const fullPath = path.join(basePath, itemPath);
+    const fullPath = resolveInside(basePath, itemPath);
+
+    if (!fullPath || fullPath === path.resolve(basePath)) {
+        return res.status(400).json({ message: 'Invalid item path' });
+    }
 
     if (!fs.existsSync(fullPath)) {
         return res.status(404).json({ message: 'Item not found' });
@@ -130,8 +145,12 @@ export const deleteItem = async (req: Request, res: Response) => {
 export const moveItem = async (req: Request, res: Response) => {
     const { itemPath, destinationPath } = req.body;
     const basePath = path.join(__dirname, '../share');
-    const fullItemPath = path.join(basePath, itemPath);
-    const fullDestPath = path.join(basePath, destinationPath, path.basename(itemPath));
+    const fullItemPath = resolveInside(basePath, itemPath);
+    const fullDestPath = fullItemPath && resolveInside(basePath, destinationPath, path.basename(fullItemPath));
+
+    if (!fullItemPath || !fullDestPath || fullItemPath === path.resolve(basePath)) {
+        return res.status(400).json({ message: 'Invalid path' });
+    }
 
     if (!fs.existsSync(fullItemPath)) {
         return res.status(404).json({ message: 'Item not found' });
@@ -172,8 +191,8 @@ export const createShareLink = async (req: Request, res: Response) => {
         // Filter out folders and validate that files exist
         // Filter out folders and validate that files exist
         const validFiles = validItems.filter((itemPath: string) => {
-            const fullPath = path.join(basePath, itemPath);
-            const stats = fs.existsSync(fullPath) ? fs.statSync(fullPath) : null;
+            const fullPath = resolveInside(basePath, itemPath);
+            const stats = fullPath && fs.existsSync(fullPath) ? fs.statSync(fullPath) : null;
             return stats && stats.isFile(); // Only include files
         });
 
@@ -265,7 +284,11 @@ export const listItems = async (req: Request, res: Response) => {
         const { path: requestedPath } = req.query;
         const basePath = path.join(__dirname, '../share');
 
-        const targetPath = requestedPath ? path.join(basePath, requestedPath as string) : basePath;
+        const targetPath = requestedPath ? resolveInside(basePath, requestedPath) : basePath;
+
+        if (!targetPath) {
+            return res.status(400).json({ message: 'Invalid path' });
+        }
 
         if (!fs.existsSync(targetPath)) {
             return res.status(404).json({ message: 'Directory not found' });
@@ -305,9 +328,9 @@ export const downloadSharedItem = async (req: Request, res: Response) => {
     }
 
     const basePath = path.join(__dirname, '../share');
-    const fullPath = path.join(basePath, filePath);
+    const fullPath = resolveInside(basePath, filePath);
 
-    if (!fs.existsSync(fullPath)) {
+    if (!fullPath || !fs.existsSync(fullPath)) {
         return res.status(404).json({ message: 'File not found' });
     }
 
@@ -341,9 +364,9 @@ export const downloadAllSharedItems = async (req: Request, res: Response) => {
 
     // Iterate over the shared item paths and add them to the archive
     for (const itemPath of sharedItem.paths) {
-        const fullPath = path.join(basePath, itemPath);
+        const fullPath = resolveInside(basePath, itemPath);
 
-        if (fs.existsSync(fullPath)) {
+        if (fullPath && fs.existsSync(fullPath)) {
             const stats = fs.statSync(fullPath);
 
             if (stats.isFile()) {
@@ -378,9 +401,9 @@ export const previewFile = async (req: Request, res: Response) => {
         const { filePath } = req.params;
         // Construct the absolute path to the file on your server
         const basePath = path.join(__dirname, '../share');
-        const fullPath = path.join(basePath, filePath);
+        const fullPath = resolveInside(basePath, filePath);
 
-        if (!fs.existsSync(fullPath)) {
+        if (!fullPath || !fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
             return res.status(404).json({ message: 'File not found' });
         }
 
