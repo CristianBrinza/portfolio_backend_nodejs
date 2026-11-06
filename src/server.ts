@@ -44,9 +44,6 @@ app.get('/status', (req, res) => {
 // Serve images from the 'images' directory
 app.use('/images', express.static(path.join(__dirname, 'images')));
 
-// Serve shared items
-app.use('/storage/shared', express.static(path.join(__dirname, 'storage')));
-
 // Routes
 app.use('/auth', authRoutes);
 app.use('/', userRoutes);
@@ -64,10 +61,6 @@ app.use(
     '/user/profile-image',
     express.static(path.join(__dirname, 'uploads/profile_images'))
 );
-
-// Serve shared items and storage files
-app.use('/storage/shared', express.static(path.join(__dirname, 'storage')));
-app.use('/storage/download', express.static(path.join(__dirname, 'storage')));
 
 // Test environment variables
 console.log('Environment Variables:', {
