@@ -62,13 +62,6 @@ app.use(
     express.static(path.join(__dirname, 'uploads/profile_images'))
 );
 
-// Test environment variables
-console.log('Environment Variables:', {
-    PORT,
-    MONGO_URI,
-    JWT_SECRET: '****', // Hide secret when logging
-});
-
 // Connect to MongoDB and start the server
 connect(MONGO_URI)
     .then(() => {
