@@ -180,6 +180,7 @@ router.get('/add-files/:code', listFiles);
  *       404:
  *         description: File not found
  */
+router.get('/add-files/:code/download-all', downloadAllFiles);
 router.get('/add-files/:code/:fileName', downloadFile);
 
 /**
@@ -206,7 +207,6 @@ router.get('/add-files/:code/:fileName', downloadFile);
  *       404:
  *         description: Folder not found
  */
-router.get('/add-files/:code/download-all', downloadAllFiles);
 
 // NEW chunk-based endpoints
 router.post(
