@@ -24,7 +24,6 @@ const storage = multer.diskStorage({
 export const chunkUploadMiddleware = multer({
     storage,
     limits: {
-        fileSize: Infinity, // Let the chunk be large, but typically each chunk is ~5-10MB
-        //fileSize: 6 * 1024 * 1024 * 1024, // 6 GB
+        fileSize: 64 * 1024 * 1024, // The site sends 5 MB chunks
     },
 });

@@ -4,9 +4,18 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import archiver from 'archiver';
+import { isSafeFileName, resolveInside } from '../utils/safePath';
 
 // Basic "in-memory" storage for codes. Replace with DB in production.
 let codesMemory: { code: string; createdAt: Date }[] = [];
+
+const basePath = path.join(__dirname, '../get_files');
+
+// A code is valid while it is in memory, or after a restart while its folder exists.
+export const isKnownCode = (code: unknown): code is string => {
+    if (typeof code !== 'string' || !/^[a-f0-9]{14}$/.test(code)) return false;
+    return codesMemory.some((entry) => entry.code === code) || fs.existsSync(path.join(basePath, code));
+};
 
 // (1) Generate code
 export const generateCode = (req: Request, res: Response) => {
@@ -26,9 +35,8 @@ export const deleteCode = (req: Request, res: Response) => {
     codesMemory = codesMemory.filter((c) => c.code !== code);
 
     // Remove the folder
-    const basePath = path.join(__dirname, '../get_files');
-    const folderPath = path.join(basePath, code);
-    if (fs.existsSync(folderPath)) {
+    const folderPath = resolveInside(basePath, code);
+    if (folderPath && folderPath !== path.resolve(basePath) && fs.existsSync(folderPath)) {
         fs.rmSync(folderPath, { recursive: true, force: true });
     }
     return res.json({ message: `Code ${code} deleted` });
@@ -38,7 +46,6 @@ export const deleteCode = (req: Request, res: Response) => {
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const { code } = req.params;
-        const basePath = path.join(__dirname, '../get_files');
         const folderPath = path.join(basePath, code);
         fs.mkdirSync(folderPath, { recursive: true });
         cb(null, folderPath);
@@ -57,8 +64,7 @@ export const uploadFiles = [
     (req: Request, res: Response, next: Function) => {
         // 1) Verify code is known
         const { code } = req.params;
-        const codeExists = codesMemory.some((entry) => entry.code === code);
-        if (!codeExists) {
+        if (!isKnownCode(code)) {
             return res.status(404).json({ message: 'Code not found' });
         }
         next();
@@ -76,12 +82,10 @@ export const listFiles = (req: Request, res: Response) => {
     const { code } = req.params;
 
     // 1) Verify code is known
-    const codeExists = codesMemory.some((entry) => entry.code === code);
-    if (!codeExists) {
+    if (!isKnownCode(code)) {
         return res.status(404).json({ message: 'Code not found' });
     }
 
-    const basePath = path.join(__dirname, '../get_files');
     const folderPath = path.join(basePath, code);
 
     if (!fs.existsSync(folderPath)) {
@@ -99,7 +103,9 @@ export const listFiles = (req: Request, res: Response) => {
 // (7) Download a single file
 export const downloadFile = (req: Request, res: Response) => {
     const { code, fileName } = req.params;
-    const basePath = path.join(__dirname, '../get_files');
+    if (!isKnownCode(code) || !isSafeFileName(fileName)) {
+        return res.status(404).json({ message: 'File not found' });
+    }
     const filePath = path.join(basePath, code, fileName);
 
     if (!fs.existsSync(filePath)) {
@@ -117,7 +123,9 @@ export const downloadFile = (req: Request, res: Response) => {
 // (8) Download all files in a folder (ZIP)
 export const downloadAllFiles = (req: Request, res: Response) => {
     const { code } = req.params;
-    const basePath = path.join(__dirname, '../get_files');
+    if (!isKnownCode(code)) {
+        return res.status(404).json({ message: 'Folder not found' });
+    }
     const folderPath = path.join(basePath, code);
 
     if (!fs.existsSync(folderPath)) {

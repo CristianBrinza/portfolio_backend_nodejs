@@ -4,6 +4,15 @@ import fs from 'fs';
 import path from 'path';
 import ChunkUpload from '../models/ChunkUpload';
 import ChangeLog from '../models/ChangeLog';
+import { isKnownCode } from './addFilesController';
+import { isSafeFileName } from '../utils/safePath';
+
+const MAX_CHUNKS = 100000;
+
+const isValidUpload = (code: unknown, fileName: unknown, totalChunks: unknown) => {
+    const chunks = Number(totalChunks);
+    return isKnownCode(code) && isSafeFileName(fileName) && Number.isInteger(chunks) && chunks > 0 && chunks <= MAX_CHUNKS;
+};
 
 // POST /add-files/upload-chunk
 export const uploadChunkAddFiles = async (req: Request, res: Response) => {
@@ -14,8 +23,14 @@ export const uploadChunkAddFiles = async (req: Request, res: Response) => {
         if (!file) {
             return res.status(400).json({ message: 'No chunk file provided' });
         }
-        if (!uploadId || !fileName || !totalChunks || !code) {
+        if (typeof uploadId !== 'string' || !uploadId || !fileName || !totalChunks || !code) {
+            fs.rmSync(file.path, { force: true });
             return res.status(400).json({ message: 'Missing required fields' });
+        }
+        // Multipart fields arrive with the chunk, so a rejected chunk is removed here.
+        if (!isValidUpload(code, fileName, totalChunks)) {
+            fs.rmSync(file.path, { force: true });
+            return res.status(403).json({ message: 'Invalid upload' });
         }
 
         // Optionally track in DB
@@ -47,7 +62,7 @@ export const uploadChunkAddFiles = async (req: Request, res: Response) => {
 export const completeUploadAddFiles = async (req: Request, res: Response) => {
     try {
         const { uploadId } = req.body;
-        if (!uploadId) {
+        if (typeof uploadId !== 'string' || !uploadId) {
             return res.status(400).json({ message: 'Missing uploadId' });
         }
 
@@ -58,6 +73,18 @@ export const completeUploadAddFiles = async (req: Request, res: Response) => {
         }
 
         const { fileName, totalChunks, path: code } = chunkUpload;
+        if (!isValidUpload(code, fileName, totalChunks)) {
+            await ChunkUpload.deleteOne({ uploadId });
+            return res.status(403).json({ message: 'Invalid upload' });
+        }
+
+        const chunkDir = path.join(__dirname, '../temp_chunks');
+        for (let i = 0; i < totalChunks; i++) {
+            if (!fs.existsSync(path.join(chunkDir, `${fileName}-chunk-${i}`))) {
+                return res.status(400).json({ message: `Missing chunk at index ${i}` });
+            }
+        }
+
         const basePath = path.join(__dirname, '../get_files');
         const targetFolder = path.join(basePath, code);
         if (!fs.existsSync(targetFolder)) {
@@ -70,10 +97,7 @@ export const completeUploadAddFiles = async (req: Request, res: Response) => {
 
         // Append each chunk in order
         for (let i = 0; i < totalChunks; i++) {
-            const chunkPath = path.join(__dirname, '../temp_chunks', `${fileName}-chunk-${i}`);
-            if (!fs.existsSync(chunkPath)) {
-                return res.status(400).json({ message: `Missing chunk at index ${i}` });
-            }
+            const chunkPath = path.join(chunkDir, `${fileName}-chunk-${i}`);
             const data = fs.readFileSync(chunkPath);
             writeStream.write(data);
             fs.unlinkSync(chunkPath);
