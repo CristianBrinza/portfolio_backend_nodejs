@@ -5,6 +5,7 @@ import path from 'path';
 import ChunkUpload from '../models/ChunkUpload';
 import ChangeLog from '../models/ChangeLog'; // if you want to log
 import { isSafeFileName, resolveInside } from '../utils/safePath';
+import { chunkPath, isValidChunk } from '../middleware/chunkMiddleware';
 
 // POST /share/upload-chunk
 export const uploadChunk = async (req: Request, res: Response) => {
@@ -21,9 +22,12 @@ export const uploadChunk = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'No chunk file provided' });
         }
 
-        if (!uploadId || !fileName || !totalChunks) {
+        if (!fileName || !totalChunks || !isValidChunk(uploadId, chunkIndex, totalChunks)) {
+            fs.rmSync(file.path, { force: true });
             return res.status(400).json({ message: 'Missing required fields' });
         }
+
+        fs.renameSync(file.path, chunkPath(uploadId, Number(chunkIndex)));
 
         // Optionally, track in DB
         const chunkUpload = await ChunkUpload.findOneAndUpdate(
@@ -71,7 +75,7 @@ export const completeUpload = async (req: Request, res: Response) => {
           We'll read all chunk files from /temp_chunks & assemble them into "share" folder
         */
         const { uploadId } = req.body;
-        if (!uploadId) {
+        if (typeof uploadId !== 'string' || !uploadId) {
             return res.status(400).json({ message: 'Missing uploadId' });
         }
 
@@ -98,18 +102,15 @@ export const completeUpload = async (req: Request, res: Response) => {
 
         // Append each chunk in order
         for (let i = 0; i < totalChunks; i++) {
-            // The front end might name each chunk as the originalFileName
-            // In practice, you'll store chunkIndex in filename or keep it in memory
-            // For demonstration, let's assume it's "fileName-chunkIndex"
-            const chunkPath = path.join(__dirname, '../temp_chunks', `${fileName}-chunk-${i}`);
-            if (!fs.existsSync(chunkPath)) {
+            const chunkFile = chunkPath(uploadId, i);
+            if (!fs.existsSync(chunkFile)) {
                 // If a chunk is missing, handle error
                 return res.status(400).json({ message: `Missing chunk at index ${i}` });
             }
-            const data = fs.readFileSync(chunkPath);
+            const data = fs.readFileSync(chunkFile);
             writeStream.write(data);
             // Remove the chunk after writing
-            fs.unlinkSync(chunkPath);
+            fs.unlinkSync(chunkFile);
         }
         writeStream.end();
 

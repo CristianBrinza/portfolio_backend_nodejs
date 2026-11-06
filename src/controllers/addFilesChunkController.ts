@@ -6,6 +6,7 @@ import ChunkUpload from '../models/ChunkUpload';
 import ChangeLog from '../models/ChangeLog';
 import { isKnownCode } from './addFilesController';
 import { isSafeFileName } from '../utils/safePath';
+import { chunkPath, isValidChunk } from '../middleware/chunkMiddleware';
 
 const MAX_CHUNKS = 100000;
 
@@ -28,10 +29,12 @@ export const uploadChunkAddFiles = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Missing required fields' });
         }
         // Multipart fields arrive with the chunk, so a rejected chunk is removed here.
-        if (!isValidUpload(code, fileName, totalChunks)) {
+        if (!isValidUpload(code, fileName, totalChunks) || !isValidChunk(uploadId, chunkIndex, totalChunks)) {
             fs.rmSync(file.path, { force: true });
             return res.status(403).json({ message: 'Invalid upload' });
         }
+
+        fs.renameSync(file.path, chunkPath(uploadId, Number(chunkIndex)));
 
         // Optionally track in DB
         const chunkUpload = await ChunkUpload.findOneAndUpdate(
@@ -78,9 +81,8 @@ export const completeUploadAddFiles = async (req: Request, res: Response) => {
             return res.status(403).json({ message: 'Invalid upload' });
         }
 
-        const chunkDir = path.join(__dirname, '../temp_chunks');
         for (let i = 0; i < totalChunks; i++) {
-            if (!fs.existsSync(path.join(chunkDir, `${fileName}-chunk-${i}`))) {
+            if (!fs.existsSync(chunkPath(uploadId, i))) {
                 return res.status(400).json({ message: `Missing chunk at index ${i}` });
             }
         }
@@ -97,10 +99,10 @@ export const completeUploadAddFiles = async (req: Request, res: Response) => {
 
         // Append each chunk in order
         for (let i = 0; i < totalChunks; i++) {
-            const chunkPath = path.join(chunkDir, `${fileName}-chunk-${i}`);
-            const data = fs.readFileSync(chunkPath);
+            const chunkFile = chunkPath(uploadId, i);
+            const data = fs.readFileSync(chunkFile);
             writeStream.write(data);
-            fs.unlinkSync(chunkPath);
+            fs.unlinkSync(chunkFile);
         }
         writeStream.end();
 

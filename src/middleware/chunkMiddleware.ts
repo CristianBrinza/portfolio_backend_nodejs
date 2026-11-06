@@ -2,6 +2,7 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { createHash, randomUUID } from 'crypto';
 
 // A dedicated directory for chunks
 const CHUNK_DIR = path.join(__dirname, '../temp_chunks');
@@ -14,12 +15,27 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, CHUNK_DIR);
     },
+    // A random name, so an unchecked request can never touch another upload's chunks.
     filename: (req, file, cb) => {
-        // We can keep the original name or make a custom name
-        // but we'll do it with the chunkIndex in the route
-        cb(null, file.originalname);
+        cb(null, `incoming-${randomUUID()}`);
     },
 });
+
+// Moves a checked chunk to the name its upload will look for.
+export const chunkPath = (uploadId: string, index: number) =>
+    path.join(CHUNK_DIR, `${createHash('sha256').update(uploadId).digest('hex')}-chunk-${index}`);
+
+export const isValidChunk = (uploadId: unknown, chunkIndex: unknown, totalChunks: unknown) => {
+    const index = Number(chunkIndex);
+    return (
+        typeof uploadId === 'string' &&
+        uploadId.length > 0 &&
+        uploadId.length <= 1000 &&
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < Number(totalChunks)
+    );
+};
 
 export const chunkUploadMiddleware = multer({
     storage,
