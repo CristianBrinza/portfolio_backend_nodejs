@@ -132,7 +132,7 @@ export const uploadProfileImage = async (req: Request, res: Response) => {
 export const getProfileImage = async (req: Request, res: Response) => {
     try {
         const { filename } = req.params;
-        const imagePath = path.join(__dirname, '../uploads/profile_images', filename);
+        const imagePath = path.join(__dirname, '../uploads/profile_images', path.basename(filename));
 
         if (fs.existsSync(imagePath)) {
             res.sendFile(imagePath);
